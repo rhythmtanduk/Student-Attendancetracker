@@ -15,98 +15,111 @@ if ($user_role !== 'admin' && $user_role !== 'administrator' && $user_role !== '
     exit();
 }
 
-$today = date("Y-m-d");
-
-// Filters from the form (default: this month, all classes)
-$from = $_GET['from'] ?? date("Y-m-01");
-$to   = $_GET['to'] ?? $today;
-$sel  = $_GET['class'] ?? "";
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) { $from = date("Y-m-01"); }
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))   { $to = $today; }
+// Filters
+$sel   = $_GET['class'] ?? "";
+$level = (($_GET['level'] ?? "") == 'low') ? 'low' : "";   // 'low' = below 75% only
 
 // Class list for the dropdown
 $classes = $conn->query("SELECT DISTINCT class, section FROM students ORDER BY class, section");
 
-// Main report query: one row per student
-// (? = '' OR ...) means: if no class is chosen, show every class
-$stmt = $conn->prepare("SELECT s.roll_no, s.full_name, s.class, s.section,
-                               COUNT(a.attendance_id) AS total,
-                               COALESCE(SUM(a.status = 'Present'), 0) AS present,
-                               COALESCE(SUM(a.status = 'Late'), 0) AS late,
-                               COALESCE(SUM(a.status = 'Absent'), 0) AS absent
-                        FROM students s
-                        LEFT JOIN attendance a ON a.student_id = s.student_id
-                             AND a.attendance_date BETWEEN ? AND ?
+// (? = '' OR ...) means: if the filter is empty, do not filter
+$stmt = $conn->prepare("SELECT r.report_id, r.report_date, r.from_date, r.to_date,
+                               r.total_days, r.attended_days, r.attendance_percentage, r.remarks,
+                               s.roll_no, s.full_name, s.class, s.section
+                        FROM reports r
+                        JOIN students s ON s.student_id = r.student_id
                         WHERE (? = '' OR CONCAT(s.class, '|', s.section) = ?)
-                        GROUP BY s.student_id, s.roll_no, s.full_name, s.class, s.section
-                        ORDER BY s.class, s.section, CAST(s.roll_no AS UNSIGNED)");
-$stmt->bind_param("ssss", $from, $to, $sel, $sel);
+                          AND (? = '' OR r.attendance_percentage < 75)
+                        ORDER BY r.report_date DESC, r.report_id DESC
+                        LIMIT 500");
+$stmt->bind_param("sss", $sel, $sel, $level);
 $stmt->execute();
 $result = $stmt->get_result();
 
 $rows = [];
-$sum_percent = 0;
-$counted = 0;
+$sum = 0;
 $below = 0;
 while ($r = $result->fetch_assoc()) {
-    $r['percent'] = $r['total'] > 0 ? round(($r['present'] + $r['late']) * 100 / $r['total'], 1) : null;
-    if ($r['percent'] !== null) {
-        $sum_percent += $r['percent'];
-        $counted++;
-        if ($r['percent'] < 75) { $below++; }
-    }
     $rows[] = $r;
+    $sum += $r['attendance_percentage'];
+    if ($r['attendance_percentage'] < 75) { $below++; }
 }
 $stmt->close();
-$average = $counted > 0 ? round($sum_percent / $counted, 1) : 0;
+$average = count($rows) > 0 ? round($sum / count($rows), 1) : 0;
 
-$page_title = "Attendance Report";
-$page_sub   = "Percentage of attendance for each student.";
+$page_title = "Attendance Reports";
+$page_sub   = "Saved reports: view, edit or delete.";
 $active     = "report";
 include("../users/header.php");
 ?>
 
+<!-- Flash Messages -->
+<?php if (isset($_GET['msg'])): ?>
+    <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i><?= htmlspecialchars($_GET['msg']) ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+<?php endif; ?>
+
+<?php if (isset($_GET['err'])): ?>
+    <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i><?= htmlspecialchars($_GET['err']) ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+<?php endif; ?>
+
+<!-- Action Header -->
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <div>
+        <h4 class="fw-bold mb-1">Saved Reports</h4>
+        <span class="text-muted small">Showing <span id="rowCount"><?= count($rows) ?></span> of <?= count($rows) ?> reports</span>
+    </div>
+    <a href="create_report.php" class="btn btn-primary px-3 shadow-sm">
+        <i class="bi bi-file-earmark-plus me-1"></i> Generate Report
+    </a>
+</div>
+
 <!-- Filters -->
-<form method="get" class="panel-card shadow-sm p-3 mb-4 no-print">
+<form method="get" class="panel-card shadow-sm p-3 mb-3 no-print">
     <div class="row g-3 align-items-end">
-        <div class="col-md-3">
+        <div class="col-md-4">
             <label class="form-label small fw-semibold">Class</label>
             <select name="class" class="form-select">
                 <option value="">All classes</option>
                 <?php while ($c = $classes->fetch_assoc()): ?>
                     <?php $value = $c['class'] . "|" . $c['section']; ?>
                     <option value="<?= htmlspecialchars($value) ?>" <?= ($sel == $value) ? 'selected' : '' ?>>
-                        Class <?= htmlspecialchars($c['class']) ?> - Section <?= htmlspecialchars($c['section']) ?>
+                        Class <?= htmlspecialchars($c['class']) ?> - <?= htmlspecialchars($c['section']) ?>
                     </option>
                 <?php endwhile; ?>
             </select>
         </div>
         <div class="col-md-3">
-            <label class="form-label small fw-semibold">From</label>
-            <input type="date" name="from" class="form-control" value="<?= htmlspecialchars($from) ?>" max="<?= $today ?>">
+            <label class="form-label small fw-semibold">Show</label>
+            <select name="level" class="form-select">
+                <option value="">All reports</option>
+                <option value="low" <?= $level == 'low' ? 'selected' : '' ?>>Below 75% only</option>
+            </select>
         </div>
-        <div class="col-md-3">
-            <label class="form-label small fw-semibold">To</label>
-            <input type="date" name="to" class="form-control" value="<?= htmlspecialchars($to) ?>" max="<?= $today ?>">
-        </div>
-        <div class="col-md-3">
-            <button type="submit" class="btn btn-primary w-100"><i class="bi bi-funnel me-1"></i> Show Report</button>
+        <div class="col-md-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-funnel me-1"></i> Filter</button>
+            <a href="report.php" class="btn btn-outline-secondary">Reset</a>
         </div>
     </div>
 </form>
 
 <!-- Summary cards -->
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-3">
     <div class="col-12 col-md-4">
         <div class="metric-card">
-            <div class="text-muted small fw-medium">Students in report</div>
+            <div class="text-muted small fw-medium">Reports shown</div>
             <h3 class="fw-bold text-dark mt-1 mb-0"><?= count($rows) ?></h3>
         </div>
     </div>
     <div class="col-6 col-md-4">
         <div class="metric-card">
             <div class="text-muted small fw-medium">Average attendance</div>
-            <h3 class="fw-bold mt-1 mb-0 <?= ($counted > 0 && $average < 75) ? 'text-danger' : 'text-success' ?>"><?= $counted > 0 ? $average . '%' : '-' ?></h3>
+            <h3 class="fw-bold mt-1 mb-0 <?= (count($rows) > 0 && $average < 75) ? 'text-danger' : 'text-success' ?>"><?= count($rows) > 0 ? $average . '%' : '-' ?></h3>
         </div>
     </div>
     <div class="col-6 col-md-4">
@@ -126,49 +139,61 @@ include("../users/header.php");
         </div>
     </div>
     <div class="col-md-7 text-md-end">
-        <button type="button" id="exportCsv" data-filename="attendance_report.csv" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i> Download CSV</button>
+        <button type="button" id="exportCsv" data-filename="saved_reports.csv" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i> Download CSV</button>
         <button type="button" id="printBtn" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i> Print</button>
     </div>
 </div>
 
 <div class="panel-card shadow-sm">
-    <div class="p-3 border-bottom fw-bold">
-        Report from <?= date("d M Y", strtotime($from)) ?> to <?= date("d M Y", strtotime($to)) ?>
-        <span class="text-muted fw-normal small ms-2">(showing <span id="rowCount"><?= count($rows) ?></span> students)</span>
-    </div>
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0" id="dataTable">
             <thead class="table-light">
                 <tr>
                     <th class="ps-3">Roll No</th>
-                    <th>Name</th>
+                    <th>Student</th>
                     <th>Class</th>
-                    <th class="text-center">Total Days</th>
-                    <th class="text-center">Present</th>
-                    <th class="text-center">Late</th>
-                    <th class="text-center">Absent</th>
-                    <th class="text-end pe-3">Attendance %</th>
+                    <th>Period</th>
+                    <th class="text-center">Days</th>
+                    <th class="text-center">Attendance</th>
+                    <th>Saved On</th>
+                    <th>Remarks</th>
+                    <th class="text-end pe-3 no-print" style="width: 140px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($rows)): ?>
-                    <tr><td colspan="8" class="text-center text-muted py-4">No students found.</td></tr>
+                    <tr>
+                        <td colspan="9" class="text-center text-muted py-5">
+                            <i class="bi bi-inbox fs-2 d-block mb-2 text-secondary"></i>
+                            No saved reports yet. Click "Generate Report" to create one.
+                        </td>
+                    </tr>
                 <?php else: ?>
                     <?php foreach ($rows as $r): ?>
                         <tr data-row>
                             <td class="ps-3"><code><?= htmlspecialchars($r['roll_no']) ?></code></td>
                             <td class="fw-semibold"><?= htmlspecialchars($r['full_name']) ?></td>
                             <td><?= htmlspecialchars($r['class']) ?>-<?= htmlspecialchars($r['section']) ?></td>
-                            <td class="text-center"><?= $r['total'] ?></td>
-                            <td class="text-center text-success"><?= $r['present'] ?></td>
-                            <td class="text-center text-warning"><?= $r['late'] ?></td>
-                            <td class="text-center text-danger"><?= $r['absent'] ?></td>
-                            <td class="text-end pe-3">
-                                <?php if ($r['percent'] === null): ?>
-                                    <span class="text-muted">No data</span>
-                                <?php else: ?>
-                                    <span class="badge <?= $r['percent'] < 75 ? 'bg-danger' : 'bg-success' ?>"><?= $r['percent'] ?>%</span>
-                                <?php endif; ?>
+                            <td class="small"><?= date("d M", strtotime($r['from_date'])) ?> - <?= date("d M Y", strtotime($r['to_date'])) ?></td>
+                            <td class="text-center"><?= $r['attended_days'] ?> / <?= $r['total_days'] ?></td>
+                            <td class="text-center">
+                                <span class="badge <?= $r['attendance_percentage'] < 75 ? 'bg-danger' : 'bg-success' ?>"><?= $r['attendance_percentage'] ?>%</span>
+                            </td>
+                            <td class="small text-muted"><?= date("d M Y", strtotime($r['report_date'])) ?></td>
+                            <td class="small text-muted"><?= $r['remarks'] ? htmlspecialchars($r['remarks']) : '-' ?></td>
+                            <td class="text-end pe-3 no-print">
+                                <div class="btn-group btn-group-sm">
+                                    <a href="view_report.php?id=<?= $r['report_id'] ?>" class="btn btn-outline-secondary" title="View">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a href="update_report.php?id=<?= $r['report_id'] ?>" class="btn btn-outline-warning" title="Edit">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <a href="delete_report.php?id=<?= $r['report_id'] ?>" class="btn btn-outline-danger"
+                                       onclick="return confirm('Are you sure you want to delete this report?');" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
