@@ -31,10 +31,18 @@ $stmt->execute();
 $trow = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 if ($trow) { $teacher_id = $trow['teacher_id']; }
+// Is the chosen date a holiday?
+$h = $conn->prepare("SELECT title FROM holidays WHERE holiday_date = ?");
+$h->bind_param("s", $date);
+$h->execute();
+$holiday = $h->get_result()->fetch_assoc();
+$h->close();
 
 // SAVE
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ($date > $today) {
+    if ($holiday) {
+        $error = "This date is a holiday (" . $holiday['title'] . "). Attendance cannot be marked.";
+    } elseif ($date > $today) {
         $error = "You cannot mark attendance for a future date.";
     } elseif (empty($_POST['status'])) {
         $error = "There are no students to save.";
@@ -122,7 +130,13 @@ include("../users/header.php");
 </form>
 
 <!-- Step 2: mark each student -->
-<?php if ($sel != "" && empty($students)): ?>
+<?php if ($holiday): ?>
+    <div class="alert alert-info border-0 shadow-sm">
+        <i class="bi bi-calendar-event me-2"></i>
+        <strong><?= htmlspecialchars($holiday['title']) ?></strong> falls on this date, so attendance is not taken. Please choose another date.
+    </div>
+
+<?php elseif ($sel != "" && empty($students)): ?>
     <div class="alert alert-info border-0 shadow-sm">No students found in this class.</div>
 
 <?php elseif (!empty($students)): ?>

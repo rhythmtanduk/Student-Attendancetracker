@@ -50,6 +50,11 @@ $is_admin = ($user_role === 'admin' || $user_role === 'administrator');
                 <i class="bi bi-grid-1x2"></i><span>Dashboard</span>
             </a>
         </li>
+        <li>
+            <a href="../holiday/holidays.php" class="<?= $active == 'holiday' ? 'active' : '' ?>">
+                <i class="bi bi-calendar-event"></i><span>Holidays</span>
+            </a>
+        </li>
 
         <?php if ($is_admin): ?>
             <li class="menu-header">Management</li>
