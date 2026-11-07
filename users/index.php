@@ -43,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                 $row = $result->fetch_assoc();
 
                 // Supports bcrypt password verification or fallback plain text
-                if (password_verify($password, $row['password']) || $password === $row['password']) {
+                if (password_verify($password, $row['password'])) {
                     $_SESSION['user_id']   = $row['user_id'];
                     $_SESSION['full_name'] = $row['full_name'];
                     $_SESSION['username']  = $row['username'];

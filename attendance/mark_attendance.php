@@ -75,12 +75,15 @@ $students = [];
 $already_marked = false;
 if ($sel != "" && strpos($sel, "|") !== false) {
     list($c, $s) = explode("|", $sel, 2);
-    $stmt = $conn->prepare("SELECT s.student_id, s.roll_no, s.full_name, a.status
+    $stmt = $conn->prepare("SELECT s.student_id, s.roll_no, s.full_name, a.status,
+                            (SELECT COUNT(*) FROM leave_requests l
+                            WHERE l.student_id = s.student_id AND l.status = 'Approved'
+                            AND ? BETWEEN l.from_date AND l.to_date) AS on_leave
                             FROM students s
                             LEFT JOIN attendance a ON a.student_id = s.student_id AND a.attendance_date = ?
                             WHERE s.class = ? AND s.section = ?
                             ORDER BY CAST(s.roll_no AS UNSIGNED), s.roll_no");
-    $stmt->bind_param("sss", $date, $c, $s);
+    $stmt->bind_param("ssss", $date, $date, $c, $s);
     $stmt->execute();
     $res = $stmt->get_result();
     while ($row = $res->fetch_assoc()) {
@@ -173,7 +176,10 @@ include("../users/header.php");
                             <?php $current = $st['status'] ?? 'Present'; $id = $st['student_id']; ?>
                             <tr>
                                 <td class="ps-3"><code><?= htmlspecialchars($st['roll_no']) ?></code></td>
-                                <td class="fw-semibold"><?= htmlspecialchars($st['full_name']) ?></td>
+                                <td class="fw-semibold"><?= htmlspecialchars($st['full_name']) ?>
+                                <?php if ($st['on_leave'] > 0): ?><span class="badge bg-info text-dark ms-1">On approved leave</span>
+                                <?php endif; ?>
+                                </td>
                                 <td class="text-end pe-3">
                                     <div class="btn-group btn-group-sm">
                                         <input type="radio" class="btn-check" name="status[<?= $id ?>]" id="p<?= $id ?>" value="Present" <?= $current == 'Present' ? 'checked' : '' ?>>

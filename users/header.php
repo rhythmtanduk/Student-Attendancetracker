@@ -12,6 +12,11 @@ if (!isset($page_title)) { $page_title = "Attendance Tracker"; }
 if (!isset($page_sub))   { $page_sub = ""; }
 if (!isset($active))     { $active = ""; }
 $is_admin = ($user_role === 'admin' || $user_role === 'administrator');
+$pending_leaves = 0;
+if (($is_admin || $user_role === 'teacher') && isset($conn)) {
+    $r = $conn->query("SELECT COUNT(*) AS total FROM leave_requests WHERE status = 'Pending'");
+    if ($r) { $pending_leaves = (int)$r->fetch_assoc()['total']; }
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -82,13 +87,26 @@ $is_admin = ($user_role === 'admin' || $user_role === 'administrator');
                     <i class="bi bi-bar-chart"></i><span>Reports</span>
                 </a>
             </li>
+            <li>
+                <a href="../leave/leave.php" class="<?= $active == 'leave' ? 'active' : '' ?>">
+                    <i class="bi bi-envelope-paper"></i><span>Leave Requests</span>
+                    <?php if ($pending_leaves > 0): ?>
+                        <span class="badge bg-danger ms-auto"><?= $pending_leaves ?></span>
+                    <?php endif; ?>
+                </a>
+            </li>
         <?php endif; ?>
-
+        
         <?php if ($user_role === 'student'): ?>
             <li class="menu-header">Student Area</li>
             <li>
                 <a href="../attendance/attendance.php" class="<?= $active == 'attendance' ? 'active' : '' ?>">
                     <i class="bi bi-calendar2-week"></i><span>My Attendance</span>
+                </a>
+            </li>
+            <li>
+                <a href="../leave/leave.php" class="<?= $active == 'leave' ? 'active' : '' ?>">
+                    <i class="bi bi-envelope-paper"></i><span>My Leave</span>
                 </a>
             </li>
         <?php endif; ?>
@@ -132,3 +150,6 @@ $is_admin = ($user_role === 'admin' || $user_role === 'administrator');
 
     <!-- MAIN BODY CONTAINER (closed in footer.php) -->
     <div class="p-4">
+
+
+
