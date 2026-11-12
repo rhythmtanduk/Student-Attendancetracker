@@ -37,8 +37,8 @@ if ($user_role === 'student') {
 else {
     $student_count = $conn->query("SELECT COUNT(*) AS total FROM students")->fetch_assoc()['total'];
     $teacher_count = $conn->query("SELECT COUNT(*) AS total FROM teachers")->fetch_assoc()['total'];
-    $class_count   = $conn->query("SELECT COUNT(*) AS total FROM (SELECT DISTINCT class, section FROM students) AS c")->fetch_assoc()['total'];
-
+    $class_count   = $conn->query("SELECT COUNT(*) AS total FROM classes")->fetch_assoc()['total'];
+    
     // Today's attendance
     $t = $conn->query("SELECT COUNT(*) AS total, SUM(status='Present') AS present, SUM(status='Late') AS late, SUM(status='Absent') AS absent FROM attendance WHERE attendance_date = '$today'")->fetch_assoc();
     $today_total   = (int)$t['total'];

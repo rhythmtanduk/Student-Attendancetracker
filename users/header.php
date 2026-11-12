@@ -1,6 +1,5 @@
 <?php
 // header.php - the top part that every page shares (sidebar + top bar).
-// Use it like the w3schools "PHP include" lesson:  include("../users/header.php");
 // The page must set these variables BEFORE including this file:
 //   $page_title = "Students";      (title shown on the top bar)
 //   $page_sub   = "Small text";    (optional)
@@ -12,10 +11,23 @@ if (!isset($page_title)) { $page_title = "Attendance Tracker"; }
 if (!isset($page_sub))   { $page_sub = ""; }
 if (!isset($active))     { $active = ""; }
 $is_admin = ($user_role === 'admin' || $user_role === 'administrator');
+
+// Number of pending leave requests (red number in the sidebar for admin and teacher)
 $pending_leaves = 0;
 if (($is_admin || $user_role === 'teacher') && isset($conn)) {
-    $r = $conn->query("SELECT COUNT(*) AS total FROM leave_requests WHERE status = 'Pending'");
-    if ($r) { $pending_leaves = (int)$r->fetch_assoc()['total']; }
+    $hdr_r = $conn->query("SELECT COUNT(*) AS total FROM leave_requests WHERE status = 'Pending'");
+    if ($hdr_r) { $pending_leaves = (int)$hdr_r->fetch_assoc()['total']; }
+}
+
+// Notifications for the bell
+$unread_count = 0;
+$latest_notes = [];
+if (isset($conn) && isset($_SESSION['user_id'])) {
+    $hdr_uid = intval($_SESSION['user_id']);
+    $hdr_r = $conn->query("SELECT COUNT(*) AS total FROM notifications WHERE user_id = $hdr_uid AND is_read = 0");
+    if ($hdr_r) { $unread_count = (int)$hdr_r->fetch_assoc()['total']; }
+    $hdr_r = $conn->query("SELECT notification_id, message, is_read, created_at FROM notifications WHERE user_id = $hdr_uid ORDER BY created_at DESC, notification_id DESC LIMIT 5");
+    if ($hdr_r) { $latest_notes = $hdr_r->fetch_all(MYSQLI_ASSOC); }
 }
 ?>
 <!doctype html>
@@ -73,6 +85,11 @@ if (($is_admin || $user_role === 'teacher') && isset($conn)) {
                     <i class="bi bi-person-badge"></i><span>Teachers</span>
                 </a>
             </li>
+            <li>
+                <a href="../log/logs.php" class="<?= $active == 'log' ? 'active' : '' ?>">
+                    <i class="bi bi-clock-history"></i><span>Activity Log</span>
+                </a>
+            </li>
         <?php endif; ?>
 
         <?php if ($is_admin || $user_role === 'teacher'): ?>
@@ -88,6 +105,16 @@ if (($is_admin || $user_role === 'teacher') && isset($conn)) {
                 </a>
             </li>
             <li>
+                <a href="../classes/classes.php" class="<?= $active == 'classes' ? 'active' : '' ?>">
+                    <i class="bi bi-door-open"></i><span>Classes</span>
+                </a>
+            </li>
+            <li>
+                <a href="../subject/subjects.php" class="<?= $active == 'subject' ? 'active' : '' ?>">
+                    <i class="bi bi-journal-bookmark"></i><span>Subjects</span>
+                </a>
+            </li>
+            <li>
                 <a href="../leave/leave.php" class="<?= $active == 'leave' ? 'active' : '' ?>">
                     <i class="bi bi-envelope-paper"></i><span>Leave Requests</span>
                     <?php if ($pending_leaves > 0): ?>
@@ -96,7 +123,7 @@ if (($is_admin || $user_role === 'teacher') && isset($conn)) {
                 </a>
             </li>
         <?php endif; ?>
-        
+
         <?php if ($user_role === 'student'): ?>
             <li class="menu-header">Student Area</li>
             <li>
@@ -125,6 +152,8 @@ if (($is_admin || $user_role === 'teacher') && isset($conn)) {
 
     <!-- TOP BAR -->
     <div class="top-navbar d-flex align-items-center justify-content-between">
+
+        <!-- Left side: menu button + page title -->
         <div class="d-flex align-items-center gap-3">
             <button class="btn btn-sm btn-light border d-lg-none" id="sidebarToggle">
                 <i class="bi bi-list fs-5"></i>
@@ -137,19 +166,59 @@ if (($is_admin || $user_role === 'teacher') && isset($conn)) {
             </div>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
-            <div class="bg-primary text-white fw-bold rounded-circle d-flex align-items-center justify-content-center" style="width:38px; height:38px; font-size: 0.9rem;">
-                <?= strtoupper(substr($full_name, 0, 1)) ?>
+        <!-- Right side: bell + user menu -->
+        <div class="d-flex align-items-center gap-3">
+
+            <!-- Notification bell -->
+            <div class="dropdown">
+                <button class="btn btn-light border rounded-circle position-relative p-0 d-flex align-items-center justify-content-center"
+                        style="width:38px; height:38px;" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+                    <i class="bi bi-bell"></i>
+                    <span id="bellBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                          <?= $unread_count == 0 ? 'style="display:none"' : '' ?>><?= $unread_count ?></span>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end shadow border-0 p-0" style="width: 340px; max-width: 90vw;">
+                    <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+                        <span class="fw-bold">Notifications</span>
+                        <a href="../notification/mark_all_read.php" class="small text-decoration-none">Mark all read</a>
+                    </div>
+                    <?php if (empty($latest_notes)): ?>
+                        <div class="text-center text-muted small py-4">No notifications yet.</div>
+                    <?php else: ?>
+                        <?php foreach ($latest_notes as $n): ?>
+                            <a href="../notification/open_notification.php?id=<?= $n['notification_id'] ?>"
+                               class="dropdown-item d-block px-3 py-2 border-bottom <?= $n['is_read'] ? '' : 'bg-primary-subtle' ?>" style="white-space: normal;">
+                                <div class="small <?= $n['is_read'] ? '' : 'fw-semibold' ?>"><?= htmlspecialchars($n['message']) ?></div>
+                                <div class="text-muted" style="font-size: 0.72rem;"><?= date("d M, h:i A", strtotime($n['created_at'])) ?></div>
+                            </a>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                    <a href="../notification/notifications.php" class="dropdown-item text-center small text-primary py-2">View all notifications</a>
+                </div>
             </div>
-            <div class="d-none d-md-block">
-                <div class="fw-bold small lh-1 text-dark mb-1"><?= $full_name ?></div>
-                <div class="text-muted lh-1 text-capitalize" style="font-size: 0.75rem;"><?= $user_role ?></div>
+
+            <!-- User menu -->
+            <div class="dropdown">
+                <a href="#" class="d-flex align-items-center gap-2 text-decoration-none" data-bs-toggle="dropdown" aria-expanded="false">
+                    <div class="bg-primary text-white fw-bold rounded-circle d-flex align-items-center justify-content-center" style="width:38px; height:38px; font-size: 0.9rem;">
+                        <?= strtoupper(substr($full_name, 0, 1)) ?>
+                    </div>
+                    <div class="d-none d-md-block text-start">
+                        <div class="fw-bold small lh-1 text-dark mb-1"><?= $full_name ?></div>
+                        <div class="text-muted lh-1 text-capitalize" style="font-size: 0.75rem;"><?= $user_role ?></div>
+                    </div>
+                    <i class="bi bi-chevron-down text-muted small d-none d-md-inline"></i>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end shadow border-0">
+                    <li><a class="dropdown-item" href="../profile/profile.php"><i class="bi bi-person me-2"></i>My Profile</a></li>
+                    <li><a class="dropdown-item" href="../profile/change_password.php"><i class="bi bi-key me-2"></i>Change Password</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="../users/logout.php" onclick="return confirm('Are you sure you want to log out?');"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                </ul>
             </div>
+
         </div>
     </div>
 
     <!-- MAIN BODY CONTAINER (closed in footer.php) -->
     <div class="p-4">
-
-
-

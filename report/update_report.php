@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/log_activity.php");
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../users/index.php");
@@ -69,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($error == "") {
             if ($update->execute()) {
+                log_activity($conn, "Edited report #" . $id . " of " . $report['full_name']);
                 header("Location: report.php?msg=" . urlencode("Report updated successfully."));
                 exit();
             } else {

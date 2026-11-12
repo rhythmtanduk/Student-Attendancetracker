@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/notify.php");
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../users/index.php");
@@ -14,8 +15,8 @@ if ($user_role !== 'student') {
     exit();
 }
 
-// Find the student record (matched by email)
-$stmt = $conn->prepare("SELECT s.student_id FROM students s JOIN users u ON u.email = s.email WHERE u.user_id = ?");
+// Find the student record (matched by email). We also need the name for the notification.
+$stmt = $conn->prepare("SELECT s.student_id, s.full_name FROM students s JOIN users u ON u.email = s.email WHERE u.user_id = ?");
 $stmt->bind_param("i", $_SESSION['user_id']);
 $stmt->execute();
 $me = $stmt->get_result()->fetch_assoc();
@@ -62,6 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param("isss", $me['student_id'], $from, $to, $reason);
 
             if ($stmt->execute()) {
+                // Tell every teacher and admin
+                $new_id = $stmt->insert_id;
+                $text = $me['full_name'] . " applied for leave (" . date("d M", strtotime($from)) . " - " . date("d M", strtotime($to)) . ")";
+                notify_staff($conn, $text, "leave/view_leave.php?id=" . $new_id);
+
                 header("Location: leave.php?msg=" . urlencode("Leave request sent. Please wait for approval."));
                 exit();
             } else {

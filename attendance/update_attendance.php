@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/log_activity.php");
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../users/index.php");
@@ -57,6 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $update->bind_param("ssi", $date, $status, $id);
 
             if ($update->execute()) {
+                log_activity($conn, "Edited attendance: " . $record['full_name'] . " on " . $date . " set to " . $status);
                 header("Location: attendance.php?date=" . $date . "&msg=" . urlencode("Attendance record updated successfully."));
                 exit();
             } else {

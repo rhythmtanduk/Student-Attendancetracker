@@ -1,6 +1,8 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/notify.php");
+if (file_exists("../users/log_activity.php")) { include("../users/log_activity.php"); }
 
 // Auth check
 if (!isset($_SESSION['user_id'])) {
@@ -31,6 +33,7 @@ $stmt->execute();
 $trow = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 if ($trow) { $teacher_id = $trow['teacher_id']; }
+
 // Is the chosen date a holiday?
 $h = $conn->prepare("SELECT title FROM holidays WHERE holiday_date = ?");
 $h->bind_param("s", $date);
@@ -62,6 +65,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $stmt->close();
 
+        // Low attendance alert: tell students who are now below 75%
+        $ids = array_map('intval', array_keys($_POST['status']));
+        if (!empty($ids)) {
+            $in = implode(",", $ids);   // safe: the list only contains whole numbers
+            $low = $conn->query("SELECT s.student_id, u.user_id,
+                                        COUNT(a.attendance_id) AS total,
+                                        SUM(a.status IN ('Present','Late')) AS ok
+                                 FROM students s
+                                 JOIN users u ON u.email = s.email
+                                 JOIN attendance a ON a.student_id = s.student_id
+                                 WHERE s.student_id IN ($in)
+                                 GROUP BY s.student_id, u.user_id
+                                 HAVING COUNT(a.attendance_id) >= 5
+                                    AND (SUM(a.status IN ('Present','Late')) * 100 / COUNT(a.attendance_id)) < 75");
+
+            if ($low) {
+                while ($l = $low->fetch_assoc()) {
+                    $percent = round($l['ok'] * 100 / $l['total'], 1);
+
+                    // Do not send the same alert again within 7 days
+                    $dup = $conn->query("SELECT notification_id FROM notifications
+                                         WHERE user_id = " . intval($l['user_id']) . "
+                                           AND message LIKE 'Low attendance%'
+                                           AND created_at >= (NOW() - INTERVAL 7 DAY) LIMIT 1");
+
+                    if ($dup && $dup->num_rows == 0) {
+                        notify_user($conn, $l['user_id'], "Low attendance: your attendance is " . $percent . "%. The minimum required is 75%.", "attendance/attendance.php");
+                    }
+                }
+            }
+        }
+
+        // Write it in the activity log
+        if (function_exists('log_activity')) {
+            log_activity($conn, "Marked attendance: Class " . str_replace("|", "-", $sel) . " on " . $date . " (" . $saved . " students)");
+        }
+
         header("Location: attendance.php?date=" . $date . "&msg=" . urlencode("Attendance saved for $saved students."));
         exit();
     }
@@ -70,15 +110,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Class list for the dropdown
 $classes = $conn->query("SELECT DISTINCT class, section FROM students ORDER BY class, section");
 
-// Students of the selected class (with their status if already marked)
+// Students of the selected class (with their status if already marked, and if they are on approved leave)
 $students = [];
 $already_marked = false;
 if ($sel != "" && strpos($sel, "|") !== false) {
     list($c, $s) = explode("|", $sel, 2);
     $stmt = $conn->prepare("SELECT s.student_id, s.roll_no, s.full_name, a.status,
-                            (SELECT COUNT(*) FROM leave_requests l
-                            WHERE l.student_id = s.student_id AND l.status = 'Approved'
-                            AND ? BETWEEN l.from_date AND l.to_date) AS on_leave
+                                   (SELECT COUNT(*) FROM leave_requests l
+                                    WHERE l.student_id = s.student_id AND l.status = 'Approved'
+                                      AND ? BETWEEN l.from_date AND l.to_date) AS on_leave
                             FROM students s
                             LEFT JOIN attendance a ON a.student_id = s.student_id AND a.attendance_date = ?
                             WHERE s.class = ? AND s.section = ?
@@ -176,9 +216,11 @@ include("../users/header.php");
                             <?php $current = $st['status'] ?? 'Present'; $id = $st['student_id']; ?>
                             <tr>
                                 <td class="ps-3"><code><?= htmlspecialchars($st['roll_no']) ?></code></td>
-                                <td class="fw-semibold"><?= htmlspecialchars($st['full_name']) ?>
-                                <?php if ($st['on_leave'] > 0): ?><span class="badge bg-info text-dark ms-1">On approved leave</span>
-                                <?php endif; ?>
+                                <td class="fw-semibold">
+                                    <?= htmlspecialchars($st['full_name']) ?>
+                                    <?php if ($st['on_leave'] > 0): ?>
+                                        <span class="badge bg-info text-dark ms-1">On approved leave</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td class="text-end pe-3">
                                     <div class="btn-group btn-group-sm">

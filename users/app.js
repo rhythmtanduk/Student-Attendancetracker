@@ -86,3 +86,17 @@ if (exportBtn && dataTable) {
         link.click();
     });
 }
+
+// 7. Notification bell: every 30 seconds, ask the server how many unread notifications there are
+var bellBadge = document.getElementById('bellBadge');
+if (bellBadge) {
+    setInterval(function () {
+        fetch('../notification/count.php')
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                bellBadge.textContent = data.unread;
+                bellBadge.style.display = data.unread > 0 ? '' : 'none';
+            })
+            .catch(function () { /* if the request fails, we simply try again later */ });
+    }, 30000);
+}

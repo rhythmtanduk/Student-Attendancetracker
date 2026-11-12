@@ -3,11 +3,10 @@ session_start();
 
 // Make sure the relative path to dbconnection.php is correct
 include("dbconnection.php");
+if (file_exists("log_activity.php")) { include("log_activity.php"); }
 
 // REDIRECT FUNCTION (Routes authenticated users to users/dashboard.php)
 function redirectByRole() {
-    // If index.php is inside the 'auth' folder, use '../users/dashboard.php'
-    // If index.php is in the root folder, change this to 'users/dashboard.php'
     header("Location: ../users/dashboard.php");
     exit();
 }
@@ -34,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         if (empty($username) || empty($password)) {
             $login_error = "Please fill in all fields.";
         } else {
-            $stmt = $conn->prepare("SELECT user_id, full_name, username, password, role FROM users WHERE username = ?");
+            $stmt = $conn->prepare("SELECT user_id, full_name, username, password, role, status FROM users WHERE username = ?");
             $stmt->bind_param("s", $username);
             $stmt->execute();
             $result = $stmt->get_result();
@@ -42,16 +41,25 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
             if ($result->num_rows === 1) {
                 $row = $result->fetch_assoc();
 
-                // Supports bcrypt password verification or fallback plain text
-                if (password_verify($password, $row['password'])) {
+                if (!password_verify($password, $row['password'])) {
+                    $login_error = "Invalid Username or Password";
+                } elseif ($row['status'] !== 'active') {
+                    $login_error = "Your account is not active. Please contact the administrator.";
+                } else {
+                    session_regenerate_id(true);   // new session id after login (safer)
                     $_SESSION['user_id']   = $row['user_id'];
                     $_SESSION['full_name'] = $row['full_name'];
                     $_SESSION['username']  = $row['username'];
-                    $_SESSION['role']      = $row['role']; 
+                    $_SESSION['role']      = $row['role'];
 
+                    // Remember the time of this login
+                    $upd = $conn->prepare("UPDATE users SET last_login = NOW() WHERE user_id = ?");
+                    $upd->bind_param("i", $row['user_id']);
+                    $upd->execute();
+                    $upd->close();
+
+                    if (function_exists('log_activity')) { log_activity($conn, "Logged in"); }
                     redirectByRole();
-                } else {
-                    $login_error = "Invalid Username or Password";
                 }
             } else {
                 $login_error = "Invalid Username or Password";
@@ -67,10 +75,20 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         $username  = trim($_POST['username']);
         $email     = trim($_POST['email']);
         $password  = $_POST['password'];
-        $role      = $_POST['role'];
+        $role      = $_POST['role'] ?? '';
 
         if (empty($full_name) || empty($username) || empty($email) || empty($password) || empty($role)) {
             $reg_error = "Please fill in all fields.";
+        } elseif (!in_array($role, ['Student', 'Teacher'], true)) {
+            $reg_error = "Please choose Student or Teacher.";
+        } elseif (strlen($full_name) > 100) {
+            $reg_error = "The name must be 100 characters or less.";
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $reg_error = "Please enter a valid email address.";
+        } elseif (!preg_match('/^[A-Za-z0-9_.]{3,30}$/', $username)) {
+            $reg_error = "Username must be 3-30 characters: letters, numbers, dot or underscore.";
+        } elseif (strlen($password) < 6) {
+            $reg_error = "Password must be at least 6 characters.";
         } else {
             $check_stmt = $conn->prepare("SELECT user_id FROM users WHERE username = ? OR email = ?");
             $check_stmt->bind_param("ss", $username, $email);
@@ -81,12 +99,20 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                 $reg_error = "Username or Email already exists!";
             } else {
                 $hashed_password = password_hash($password, PASSWORD_BCRYPT);
-                $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password, role) VALUES (?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssss", $full_name, $username, $email, $hashed_password, $role);
+
+                // Students can log in at once. Teachers wait for the administrator.
+                $status = ($role === 'Teacher') ? 'inactive' : 'active';
+
+                $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password, role, status) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("ssssss", $full_name, $username, $email, $hashed_password, $role, $status);
 
                 if ($stmt->execute()) {
-                    $reg_success = "Account created successfully! You can now log in.";
-                    $view_mode   = "login";
+                    if ($role === 'Teacher') {
+                        $reg_success = "Account created. A teacher account must be approved by the administrator before you can log in.";
+                    } else {
+                        $reg_success = "Account created successfully! You can now log in.";
+                    }
+                    $view_mode = "login";
                 } else {
                     $reg_error = "Registration failed. Try again.";
                 }
@@ -108,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    
+
     <style>
         body {
             background: linear-gradient(135deg, #eef2f3 0%, #8e9eab 100%);
@@ -184,11 +210,11 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         <div class="col-xl-10 col-lg-11">
             <div class="card auth-card">
                 <div class="row g-0">
-                    
+
                     <!-- LEFT COLUMN -->
                     <div class="col-md-5 auth-left d-none d-md-flex">
-                        <img src="https://img.freepik.com/free-vector/learning-concept-illustration_114360-618.jpg" 
-                             alt="Attendance Tracking Illustration" 
+                        <img src="https://img.freepik.com/free-vector/learning-concept-illustration_114360-618.jpg"
+                             alt="Attendance Tracking Illustration"
                              class="auth-illustration rounded">
                         <h4 class="fw-bold mb-2">Attendance Portal</h4>
                         <p class="text-white-50 small mb-0">Streamlined tracking for Students, Teachers, and Administrators.</p>
@@ -196,7 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
 
                     <!-- RIGHT COLUMN: Forms -->
                     <div class="col-md-7 auth-right">
-                        
+
                         <!-- LOGIN FORM -->
                         <div id="loginFormSection" style="display: <?= ($view_mode === 'login') ? 'block' : 'none' ?>;">
                             <div class="mb-4">
@@ -205,16 +231,16 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                             </div>
 
                             <?php if (!empty($login_error)): ?>
-                                <div class="alert alert-danger py-2 small"><?= $login_error ?></div>
+                                <div class="alert alert-danger py-2 small"><?= htmlspecialchars($login_error) ?></div>
                             <?php endif; ?>
 
                             <?php if (!empty($reg_success)): ?>
-                                <div class="alert alert-success py-2 small"><?= $reg_success ?></div>
+                                <div class="alert alert-success py-2 small"><?= htmlspecialchars($reg_success) ?></div>
                             <?php endif; ?>
 
                             <form method="post">
                                 <input type="hidden" name="action" value="login">
-                                
+
                                 <div class="mb-3">
                                     <label class="form-label small fw-semibold">Username</label>
                                     <div class="input-group">
@@ -250,7 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                             </div>
 
                             <?php if (!empty($reg_error)): ?>
-                                <div class="alert alert-danger py-2 small"><?= $reg_error ?></div>
+                                <div class="alert alert-danger py-2 small"><?= htmlspecialchars($reg_error) ?></div>
                             <?php endif; ?>
 
                             <form method="post">
@@ -258,13 +284,13 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
 
                                 <div class="mb-2">
                                     <label class="form-label small fw-semibold">Full Name</label>
-                                    <input type="text" name="full_name" class="form-control" placeholder="Enter Full Name" required>
+                                    <input type="text" name="full_name" class="form-control" placeholder="Enter Full Name" maxlength="100" required>
                                 </div>
 
                                 <div class="row g-2 mb-2">
                                     <div class="col-md-6">
                                         <label class="form-label small fw-semibold">Username</label>
-                                        <input type="text" name="username" class="form-control" placeholder="Enter username" required>
+                                        <input type="text" name="username" class="form-control" placeholder="Enter username" maxlength="30" required>
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label small fw-semibold">Email</label>
@@ -274,7 +300,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
 
                                 <div class="mb-2">
                                     <label class="form-label small fw-semibold">Password</label>
-                                    <input type="password" name="password" class="form-control" placeholder="Create a password" required>
+                                    <input type="password" name="password" class="form-control" placeholder="At least 6 characters" minlength="6" required>
                                 </div>
 
                                 <div class="mb-3">
@@ -282,8 +308,7 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
                                     <select name="role" class="form-select" required>
                                         <option value="">Select Role...</option>
                                         <option value="Student">Student</option>
-                                        <option value="Teacher">Teacher</option>
-                                        <option value="Administrator">Administrator</option>
+                                        <option value="Teacher">Teacher (needs administrator approval)</option>
                                     </select>
                                 </div>
 
@@ -324,6 +349,23 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
         e.preventDefault();
         registerSection.style.display = 'none';
         loginSection.style.display = 'block';
+    });
+
+    // A "Show password" checkbox under every password box
+    var counter = 0;
+    document.querySelectorAll('input[type="password"]').forEach(function (input) {
+        counter++;
+        var box = document.createElement('div');
+        box.className = 'form-check mt-1';
+        box.innerHTML = '<input class="form-check-input" type="checkbox" id="showPw' + counter + '">' +
+                        '<label class="form-check-label small text-muted" for="showPw' + counter + '">Show password</label>';
+
+        box.querySelector('input').addEventListener('change', function (e) {
+            input.type = e.target.checked ? 'text' : 'password';
+        });
+
+        var holder = input.closest('.input-group') || input;
+        holder.insertAdjacentElement('afterend', box);
     });
 </script>
 </body>

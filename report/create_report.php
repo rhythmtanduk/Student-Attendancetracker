@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/log_activity.php");
 
 // Auth check
 if (!isset($_SESSION['user_id'])) {
@@ -92,6 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error == "") {
         }
         $save->close();
 
+        log_activity($conn, "Saved attendance reports: " . $saved . " students, " . $from . " to " . $to);
         header("Location: report.php?msg=" . urlencode("Report saved for $saved students."));
         exit();
     }

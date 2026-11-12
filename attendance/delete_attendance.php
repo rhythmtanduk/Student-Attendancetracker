@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/log_activity.php");
 
 // Auth check
 if (!isset($_SESSION['user_id'])) {
@@ -22,6 +23,7 @@ if ($id > 0) {
     $stmt->bind_param("i", $id);
 
     if ($stmt->execute()) {
+        log_activity($conn, "Deleted attendance record #" . $id);
         header("Location: attendance.php?date=&msg=" . urlencode("Attendance record deleted successfully."));
         exit();
     } else {

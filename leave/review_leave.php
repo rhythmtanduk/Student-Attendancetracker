@@ -1,6 +1,7 @@
 <?php
 session_start();
 include("dbconnection.php");
+include("../users/notify.php");
 
 // Auth check
 if (!isset($_SESSION['user_id'])) {
@@ -48,6 +49,23 @@ $stmt->bind_param("sisi", $decision, $_SESSION['user_id'], $note, $id);
 $stmt->execute();
 
 if ($stmt->affected_rows > 0) {
+    // Tell the student (found by matching the student's email with the login email)
+    $info = $conn->prepare("SELECT u.user_id, l.from_date, l.to_date
+                            FROM leave_requests l
+                            JOIN students s ON s.student_id = l.student_id
+                            JOIN users u ON u.email = s.email
+                            WHERE l.leave_id = ?");
+    $info->bind_param("i", $id);
+    $info->execute();
+    $who = $info->get_result()->fetch_assoc();
+    $info->close();
+
+    if ($who) {
+        $text = "Your leave request (" . date("d M", strtotime($who['from_date'])) . " - " . date("d M", strtotime($who['to_date'])) . ") was " . strtolower($decision) . ".";
+        if ($note) { $text .= " Note: " . $note; }
+        notify_user($conn, $who['user_id'], $text, "leave/view_leave.php?id=" . $id);
+    }
+
     header("Location: leave.php?msg=" . urlencode("Leave request " . strtolower($decision) . "."));
 } else {
     header("Location: leave.php?err=" . urlencode("This request was already reviewed or does not exist."));

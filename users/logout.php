@@ -1,5 +1,12 @@
 <?php
 session_start();
+include("dbconnection.php");
+include("log_activity.php");
+
+// Write the logout in the activity log (before the session is destroyed)
+if (isset($_SESSION['user_id'])) {
+    log_activity($conn, "Logged out");
+}
 
 // Unset all session variables
 $_SESSION = array();

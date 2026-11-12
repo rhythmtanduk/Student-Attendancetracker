@@ -18,7 +18,7 @@ $error = "";
 $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
 // Fetch student
-$stmt = $conn->prepare("SELECT student_id, roll_no, full_name, class, section, email FROM students WHERE student_id = ?");
+$stmt = $conn->prepare("SELECT student_id, roll_no, full_name, class, section, email, class_id FROM students WHERE student_id = ?");
 $stmt->bind_param("i", $id);
 $stmt->execute();
 $result = $stmt->get_result();
@@ -34,12 +34,24 @@ $stmt->close();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $roll_no   = trim($_POST['roll_no']);
     $full_name = trim($_POST['full_name']);
-    $class     = trim($_POST['class']);
-    $section   = strtoupper(trim($_POST['section']));
+    $class_id  = intval($_POST['class_id'] ?? 0);
     $email     = trim($_POST['email']);
+    $class_id  = intval($_POST['class_id'] ?? 0);
+    $class     = "";
+    $section   = "";
 
-    if (empty($roll_no) || empty($full_name) || empty($class) || empty($section) || empty($email)) {
+    // Look up the class and section from the classes table
+    $cs = $conn->prepare("SELECT class_name, section FROM classes WHERE class_id = ?");
+    $cs->bind_param("i", $class_id);
+    $cs->execute();
+    $crow = $cs->get_result()->fetch_assoc();
+    $cs->close();
+    if ($crow) { $class = $crow['class_name']; $section = $crow['section']; }
+
+    if (empty($roll_no) || empty($full_name) || empty($email)) {
         $error = "All fields are required!";
+    } elseif ($class == "") {
+        $error = "Please choose a valid class.";
     } else {
         // Check duplicate roll_no or email for other students
         $check_stmt = $conn->prepare("SELECT student_id FROM students WHERE (roll_no = ? OR email = ?) AND student_id != ?");
@@ -49,8 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($check_stmt->get_result()->num_rows > 0) {
             $error = "Roll Number or Email is already used by another student!";
         } else {
-            $update_stmt = $conn->prepare("UPDATE students SET roll_no = ?, full_name = ?, class = ?, section = ?, email = ? WHERE student_id = ?");
-            $update_stmt->bind_param("sssssi", $roll_no, $full_name, $class, $section, $email, $id);
+            $update_stmt = $conn->prepare("UPDATE students SET roll_no = ?, full_name = ?, class = ?, section = ?, email = ?, class_id = ? WHERE student_id = ?");
+            $update_stmt->bind_param("sssssii", $roll_no, $full_name, $class, $section, $email, $class_id, $id);
 
             if ($update_stmt->execute()) {
                 header("Location: students.php?msg=" . urlencode("Student details updated successfully!"));
@@ -63,6 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $check_stmt->close();
     }
 }
+
+// Class list for the dropdown
+$classes = $conn->query("SELECT class_id, class_name, section FROM classes ORDER BY CAST(class_name AS UNSIGNED), class_name, section");
 
 $page_title = "Edit Student";
 $page_sub   = "Update the student's details.";
@@ -92,17 +107,17 @@ include("../users/header.php");
                     <div class="invalid-feedback">Please enter the full name.</div>
                 </div>
 
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label small fw-semibold">Class</label>
-                        <input type="text" name="class" class="form-control" value="<?= htmlspecialchars($student['class']) ?>" required>
-                        <div class="invalid-feedback">Please enter the class.</div>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label small fw-semibold">Section</label>
-                        <input type="text" name="section" class="form-control" value="<?= htmlspecialchars($student['section']) ?>" required>
-                        <div class="invalid-feedback">Please enter the section.</div>
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Class</label>
+                    <select name="class_id" class="form-select" required>
+                        <option value="">Select class...</option>
+                        <?php while ($c = $classes->fetch_assoc()): ?>
+                            <option value="<?= $c['class_id'] ?>" <?= $student['class_id'] == $c['class_id'] ? 'selected' : '' ?>>
+                                Class <?= htmlspecialchars($c['class_name']) ?> - Section <?= htmlspecialchars($c['section']) ?>
+                            </option>
+                        <?php endwhile; ?>
+                    </select>
+                    <div class="invalid-feedback">Please choose a class.</div>
                 </div>
 
                 <div class="mb-3">
