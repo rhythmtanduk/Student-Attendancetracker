@@ -9,37 +9,161 @@ if (sidebarToggle) {
     });
 }
 
-// 2. Live search (and optional class filter) for a table
-//    The page needs: <input id="searchBox">, <select id="classFilter"> (optional),
-//    <table id="dataTable">, and every row must have the attribute data-row
-var searchBox = document.getElementById('searchBox');
+// 2. Live search, class filter and PAGING for a table
+//    The page needs: <table id="dataTable"> and every row must have the attribute data-row
+//    Optional: <input id="searchBox">, <select id="classFilter">, <span id="rowCount">
+var searchBox   = document.getElementById('searchBox');
 var classFilter = document.getElementById('classFilter');
-var dataTable = document.getElementById('dataTable');
-var rowCount = document.getElementById('rowCount');
+var dataTable   = document.getElementById('dataTable');
+var rowCount    = document.getElementById('rowCount');
 
+var pageSize    = 10;     // how many rows are shown on one page
+var currentPage = 1;
+var allRows     = [];     // every row of the table
+var matchedRows = [];     // rows that match the search text and the class filter
+var pageBox     = null;   // the box with the page buttons (made by JavaScript)
+var printing    = false;  // true while printing (then all matching rows are shown)
+
+if (dataTable) {
+    allRows = Array.prototype.slice.call(dataTable.querySelectorAll('tbody tr[data-row]'));
+}
+
+// Make the box for the page buttons (only when the table has rows)
+if (dataTable && allRows.length > 0) {
+    pageBox = document.createElement('div');
+    pageBox.className = 'd-flex flex-wrap justify-content-between align-items-center gap-2 p-3 border-top no-print';
+    var card = dataTable.closest('.panel-card') || dataTable.parentElement;
+    card.appendChild(pageBox);
+}
+
+// One button of the page list
+function pageItem(label, page, disabled, active) {
+    var cls = 'page-item' + (disabled ? ' disabled' : '') + (active ? ' active' : '');
+    return '<li class="' + cls + '"><a class="page-link" href="#" data-page="' + page + '">' + label + '</a></li>';
+}
+
+// Show the rows of the current page and draw the page buttons
+function showPage() {
+    if (!pageBox) { return; }
+
+    var total = matchedRows.length;
+    var totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (currentPage > totalPages) { currentPage = totalPages; }
+
+    var start = (currentPage - 1) * pageSize;
+    var pageRows = printing ? matchedRows : matchedRows.slice(start, start + pageSize);
+
+    // Hide every row, then show only the rows of this page
+    allRows.forEach(function (row) { row.style.display = 'none'; });
+    pageRows.forEach(function (row) { row.style.display = ''; });
+
+    if (rowCount) { rowCount.textContent = pageRows.length; }
+
+    // Text on the left, for example: Showing 11-20 of 49
+    var info;
+    if (total === 0) {
+        info = 'No matching records';
+    } else if (printing) {
+        info = 'Showing 1-' + total + ' of ' + total;
+    } else {
+        info = 'Showing ' + (start + 1) + '-' + (start + pageRows.length) + ' of ' + total;
+    }
+    var html = '<div class="small text-muted">' + info + '</div>';
+
+    // The page buttons are only needed when there are more than 10 rows
+    if (total > 10) {
+        html += '<div class="d-flex align-items-center gap-3 flex-wrap">';
+
+        html += '<select class="form-select form-select-sm" id="pageSizeSelect" style="width: auto;">';
+        [10, 25, 50, 100].forEach(function (n) {
+            html += '<option value="' + n + '"' + (n === pageSize ? ' selected' : '') + '>' + n + ' per page</option>';
+        });
+        html += '</select>';
+
+        html += '<ul class="pagination pagination-sm mb-0">';
+        html += pageItem('&laquo; Prev', currentPage - 1, currentPage === 1, false);
+
+        // Show at most 5 page numbers around the current page
+        var first = Math.max(1, currentPage - 2);
+        var last  = Math.min(totalPages, first + 4);
+        first = Math.max(1, last - 4);
+
+        if (first > 1) {
+            html += pageItem('1', 1, false, false);
+            if (first > 2) { html += '<li class="page-item disabled"><span class="page-link">...</span></li>'; }
+        }
+        for (var p = first; p <= last; p++) {
+            html += pageItem(p, p, false, p === currentPage);
+        }
+        if (last < totalPages) {
+            if (last < totalPages - 1) { html += '<li class="page-item disabled"><span class="page-link">...</span></li>'; }
+            html += pageItem(totalPages, totalPages, false, false);
+        }
+
+        html += pageItem('Next &raquo;', currentPage + 1, currentPage === totalPages, false);
+        html += '</ul></div>';
+    }
+
+    pageBox.innerHTML = html;
+}
+
+// Work out which rows match the search text and the class filter, then show page 1
 function filterRows() {
-    if (!dataTable) { return; }
     var text = searchBox ? searchBox.value.toLowerCase() : '';
-    var cls = classFilter ? classFilter.value.toLowerCase() : '';
-    var rows = dataTable.querySelectorAll('tbody tr[data-row]');
-    var shown = 0;
+    var cls  = classFilter ? classFilter.value.toLowerCase() : '';
 
-    rows.forEach(function (row) {
-        var matchText = row.textContent.toLowerCase().indexOf(text) !== -1;
+    matchedRows = allRows.filter(function (row) {
+        var matchText  = row.textContent.toLowerCase().indexOf(text) !== -1;
         var matchClass = cls === '' || (row.dataset.class || '').toLowerCase() === cls;
-        if (matchText && matchClass) {
-            row.style.display = '';
-            shown++;
-        } else {
-            row.style.display = 'none';
+        return matchText && matchClass;
+    });
+
+    currentPage = 1;
+    showPage();
+}
+
+if (searchBox) {
+    searchBox.addEventListener('input', filterRows);
+    // Pressing Enter in the search box must not reload the page
+    searchBox.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); }
+    });
+}
+if (classFilter) { classFilter.addEventListener('change', filterRows); }
+
+if (pageBox) {
+    // Click on a page button
+    pageBox.addEventListener('click', function (e) {
+        var link = e.target.closest('a[data-page]');
+        if (!link) { return; }
+        e.preventDefault();
+        var item = link.parentElement;
+        if (item.classList.contains('disabled') || item.classList.contains('active')) { return; }
+        currentPage = parseInt(link.dataset.page, 10);
+        showPage();
+    });
+
+    // "10 per page" list
+    pageBox.addEventListener('change', function (e) {
+        if (e.target.id === 'pageSizeSelect') {
+            pageSize = parseInt(e.target.value, 10);
+            currentPage = 1;
+            showPage();
         }
     });
 
-    if (rowCount) { rowCount.textContent = shown; }
-}
+    // When printing, show all matching rows (not only the current page)
+    window.addEventListener('beforeprint', function () { printing = true;  showPage(); });
+    window.addEventListener('afterprint',  function () { printing = false; showPage(); });
 
-if (searchBox) { searchBox.addEventListener('keyup', filterRows); }
-if (classFilter) { classFilter.addEventListener('change', filterRows); }
+    // Start: show page 1 now, and again after the browser has restored old form values
+    filterRows();
+    window.addEventListener('pageshow', function () {
+        if (searchBox) { searchBox.value = ''; }
+        if (classFilter) { classFilter.value = ''; }
+        filterRows();
+    });
+}
 
 // 3. Bootstrap form validation: add class="needs-validation" novalidate to a form
 document.querySelectorAll('.needs-validation').forEach(function (form) {
@@ -65,21 +189,26 @@ if (printBtn) {
     printBtn.addEventListener('click', function () { window.print(); });
 }
 
-// 6. Download the visible table rows as a CSV file (opens in Excel): <button id="exportCsv">
+// 6. Download ALL matching rows (not only the current page) as a CSV file: <button id="exportCsv">
+function rowToCsv(tr) {
+    var cells = [];
+    tr.querySelectorAll('th, td').forEach(function (cell) {
+        var text = cell.textContent.trim().replace(/\s+/g, ' ').replace(/"/g, '""');
+        cells.push('"' + text + '"');
+    });
+    return cells.join(',');
+}
+
 var exportBtn = document.getElementById('exportCsv');
 if (exportBtn && dataTable) {
     exportBtn.addEventListener('click', function () {
         var lines = [];
-        dataTable.querySelectorAll('tr').forEach(function (tr) {
-            if (tr.style.display === 'none') { return; }
-            var cells = [];
-            tr.querySelectorAll('th, td').forEach(function (cell) {
-                var text = cell.textContent.trim().replace(/\s+/g, ' ').replace(/"/g, '""');
-                cells.push('"' + text + '"');
-            });
-            lines.push(cells.join(','));
-        });
-        var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        var head = dataTable.querySelector('thead tr');
+        if (head) { lines.push(rowToCsv(head)); }
+        matchedRows.forEach(function (tr) { lines.push(rowToCsv(tr)); });
+
+        // \ufeff makes Excel read the file as UTF-8
+        var blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
         var link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = exportBtn.dataset.filename || 'table.csv';

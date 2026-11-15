@@ -70,7 +70,7 @@ else {
                               AND (? = '' OR CONCAT(s.class, '|', s.section) = ?)
                               AND (? = '' OR a.status = ?)
                             ORDER BY a.attendance_date DESC, s.class, s.section, CAST(s.roll_no AS UNSIGNED)
-                            LIMIT 500");
+                            LIMIT 3000");
     $stmt->bind_param("ssssss", $date, $date, $sel, $sel, $status, $status);
     $stmt->execute();
     $result = $stmt->get_result();
