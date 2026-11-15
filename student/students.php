@@ -19,8 +19,7 @@ if ($user_role !== 'admin' && $user_role !== 'administrator') {
 
 $students = [];
 $class_list = [];
-$query = "SELECT student_id, roll_no, full_name, class, section, email FROM students ORDER BY student_id DESC";
-$result = $conn->query($query);
+$query = "SELECT student_id, roll_no, full_name, class, section, email FROM students ORDER BY CAST(class AS UNSIGNED), class, section, CAST(roll_no AS UNSIGNED), roll_no";$result = $conn->query($query);
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $students[] = $row;
@@ -101,7 +100,7 @@ include("../users/header.php");
                 <?php else: ?>
                     <?php foreach ($students as $index => $s): ?>
                         <tr data-row data-class="<?= htmlspecialchars($s['class'] . '-' . strtoupper($s['section'])) ?>">
-                            <td class="ps-3"><?= $index + 1 ?></td>
+                            <td class="ps-3 row-num"><?= $index + 1 ?></td>
                             <td><code><?= htmlspecialchars($s['roll_no']) ?></code></td>
                             <td class="fw-semibold text-dark"><?= htmlspecialchars($s['full_name']) ?></td>
                             <td><?= htmlspecialchars($s['class']) ?></td>

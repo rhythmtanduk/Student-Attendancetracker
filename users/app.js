@@ -55,8 +55,13 @@ function showPage() {
 
     // Hide every row, then show only the rows of this page
     allRows.forEach(function (row) { row.style.display = 'none'; });
-    pageRows.forEach(function (row) { row.style.display = ''; });
+    pageRows.forEach(function (row, i) {
+        row.style.display = '';
 
+        // Number the visible rows 1, 2, 3... (page 2 continues with 11, 12, 13...)
+        var num = row.querySelector('.row-num');
+        if (num) { num.textContent = (printing ? 0 : start) + i + 1; }
+    });
     if (rowCount) { rowCount.textContent = pageRows.length; }
 
     // Text on the left, for example: Showing 11-20 of 49

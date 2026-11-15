@@ -30,7 +30,7 @@ $stmt = $conn->prepare("SELECT r.report_id, r.report_date, r.from_date, r.to_dat
                         JOIN students s ON s.student_id = r.student_id
                         WHERE (? = '' OR CONCAT(s.class, '|', s.section) = ?)
                           AND (? = '' OR r.attendance_percentage < 75)
-                        ORDER BY r.report_date DESC, r.report_id DESC
+                        ORDER BY r.report_date DESC, CAST(s.class AS UNSIGNED), s.class, s.section, CAST(s.roll_no AS UNSIGNED), s.roll_no
                         LIMIT 500");
 $stmt->bind_param("sss", $sel, $sel, $level);
 $stmt->execute();

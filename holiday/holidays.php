@@ -12,7 +12,7 @@ $user_role = strtolower($_SESSION['role'] ?? 'student');
 $is_admin  = ($user_role === 'admin' || $user_role === 'administrator');
 $today     = date("Y-m-d");
 
-$result = $conn->query("SELECT holiday_id, holiday_date, title FROM holidays ORDER BY holiday_date DESC");
+$result = $conn->query("SELECT holiday_id, holiday_date, title FROM holidays ORDER BY (holiday_date < CURDATE()) ASC, CASE WHEN holiday_date >= CURDATE() THEN holiday_date END ASC, holiday_date DESC");
 $total  = $result ? $result->num_rows : 0;
 
 // Count upcoming holidays for the small summary

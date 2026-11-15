@@ -54,8 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Please choose a valid class.";
     } else {
         // Check duplicate roll_no or email for other students
-        $check_stmt = $conn->prepare("SELECT student_id FROM students WHERE (roll_no = ? OR email = ?) AND student_id != ?");
-        $check_stmt->bind_param("ssi", $roll_no, $email, $id);
+        $check_stmt = $conn->prepare("SELECT student_id FROM students WHERE ((roll_no = ? AND class_id = ?) OR email = ?) AND student_id != ?");
+        $check_stmt->bind_param("sisi", $roll_no, $class_id, $email, $id);
         $check_stmt->execute();
 
         if ($check_stmt->get_result()->num_rows > 0) {

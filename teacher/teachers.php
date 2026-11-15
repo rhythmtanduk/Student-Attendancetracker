@@ -18,7 +18,7 @@ if ($user_role !== 'admin' && $user_role !== 'administrator') {
 }
 
 // Column names match the teachers table: teacher_id, full_name, subject, email
-$result = $conn->query("SELECT * FROM teachers ORDER BY teacher_id DESC");
+$result = $conn->query("SELECT * FROM teachers ORDER BY teacher_id ASC");
 $total  = $result ? $result->num_rows : 0;
 
 $page_title = "Teacher Directory";
